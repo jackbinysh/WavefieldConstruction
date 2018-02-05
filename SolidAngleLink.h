@@ -85,6 +85,7 @@ void print_B_phi(vector<double>&phi, const griddata &griddata);
 double SolidAngleCalc(const Link& Curve, const viewpoint& View);
 void ComputeSolidAngle(vector<double>&phi, const struct Link& Curve);
 void ComputeSolidAngleFraming(vector<double> &phi, Link &Curve);
+void ComputeWavefield(vector<double>& phi, const Link& Curve);
 
 /*************************General maths and integer functions*****************************/
 
@@ -94,3 +95,4 @@ inline double x(int i,const griddata& griddata);
 inline double y(int i,const griddata& griddata);
 inline double z(int i,const griddata& griddata);
 inline  int pt( int i,  int j,  int k,const griddata& griddata);      //convert i,j,k to single index
+inline int mod(int i, int N);    //my own mod fn

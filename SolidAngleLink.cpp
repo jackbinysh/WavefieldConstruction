@@ -15,8 +15,11 @@ int main (void)
     InitialiseFromFile(Curve);
     cout << "calculating the solid angle..." << endl;
     ComputeSolidAngle(phi,Curve);
-    cout << "finding solid angle framing" << endl;
+    cout <<"finding solid angle framing" << endl;
     ComputeSolidAngleFraming(phi,Curve);
+    cout <<"constructing the wavefield" << endl;
+    ComputeWavefield(phi,Curve);
+
     print_Curve(Curve);
     print_B_phi(phi,griddata);
     return 0;
@@ -132,8 +135,8 @@ void InitialiseFromFile(Link& Curve)
     ComputeTangent(Curve);
     ComputeKappaN(Curve);
     // increase number of points on each link component -- the minimum number can be changed
-    
-    while (Curve.NumPoints < 600*Curve.NumComponents)
+
+    while (Curve.NumPoints < 800*Curve.NumComponents)
     {
         RefineCurve(Curve);
         ComputeLengths(Curve);
@@ -141,7 +144,7 @@ void InitialiseFromFile(Link& Curve)
         ComputeKappaN(Curve);
         cout << "link has size " << Curve.NumPoints << endl;
     }
-    
+
     ComputeWrithe(Curve);
     ComputeTwist(Curve);
 }
@@ -273,6 +276,9 @@ void RefineCurve(Link& Curve)
             Point.xcoord = Curve.Components[i].knotcurve[s].xcoord;
             Point.ycoord = Curve.Components[i].knotcurve[s].ycoord;
             Point.zcoord = Curve.Components[i].knotcurve[s].zcoord;
+            Point.ax = Curve.Components[i].knotcurve[s].ax;
+            Point.ay = Curve.Components[i].knotcurve[s].ay;
+            Point.az = Curve.Components[i].knotcurve[s].az;
             NewCurve.Components[i].knotcurve.push_back(Point);
             // create new point
             double ds = 0.5*Curve.Components[i].knotcurve[s].length;
@@ -402,12 +408,12 @@ double SolidAngleCalc(const Link& Curve, const viewpoint& View)
             // and here's the integrand
             Integral += (ds/dist)*(ninftyz*(ty*viewx-tx*viewy)+ninftyx*(tz*viewy-ty*viewz)+ninftyy*(tx*viewz-tz*viewx))/(dist + ndotninfty);
             // scroll wave
-           // if (dist < mindistComp) {mindistComp = dist;}
+            // if (dist < mindistComp) {mindistComp = dist;}
         }
 
         totalomega += Integral;
         // scroll wave
-       // if (mindistComp < mindist) {mindist = mindistComp;}
+        // if (mindistComp < mindist) {mindist = mindistComp;}
     }
     //scroll wave
     // put in the interval [0,4pi]
@@ -415,8 +421,8 @@ double SolidAngleCalc(const Link& Curve, const viewpoint& View)
     while(totalomega<0) totalomega += 4*M_PI;
 
     //  return totalomega;
-   // return 0.5*totalomega-(16.0*M_PI/Nx)*mindist; // scroll wave
-    return totalomega; 
+    // return 0.5*totalomega-(16.0*M_PI/Nx)*mindist; // scroll wave
+    return totalomega;
 }
 
 void ComputeSolidAngle(vector<double>& phi, const Link& Curve)
@@ -425,26 +431,82 @@ void ComputeSolidAngle(vector<double>& phi, const Link& Curve)
     griddata.Nx = Nx;
     griddata.Ny = Ny;
     griddata.Nz = Nz;
-    double SolidAngle;
-    viewpoint Point;
 
-    for(int k=0; k<Nz; k++)
+#pragma omp parallel default(none) shared(phi,Curve,griddata)
     {
-        for(int j=0; j<Ny; j++)
+        double SolidAngle;
+        viewpoint Point;
+#pragma omp for
+        for(int k=0; k<Nz; k++)
         {
-            for(int i=0; i<Nx; i++)
+            for(int j=0; j<Ny; j++)
             {
-                int n = pt(i,j,k,griddata);
-                Point.xcoord = x(i,griddata);
-                Point.ycoord = y(j,griddata) ;
-                Point.zcoord = z(k,griddata);
+                for(int i=0; i<Nx; i++)
+                {
+                    int n = pt(i,j,k,griddata);
+                    Point.xcoord = x(i,griddata);
+                    Point.ycoord = y(j,griddata) ;
+                    Point.zcoord = z(k,griddata);
 
-                SolidAngle = SolidAngleCalc(Curve,Point);
-                // put in the interval [0,4pi]
-                while(SolidAngle>4*M_PI) SolidAngle -= 4*M_PI;
-                while(SolidAngle<0) SolidAngle += 4*M_PI;
-                phi[n]= SolidAngle/2;
+                    SolidAngle = SolidAngleCalc(Curve,Point);
+                    // put in the interval [0,4pi]
+                    while(SolidAngle>4*M_PI) SolidAngle -= 4*M_PI;
+                    while(SolidAngle<0) SolidAngle += 4*M_PI;
+                    phi[n]= SolidAngle/2;
 
+                }
+            }
+        }
+    }
+}
+
+void ComputeWavefield(vector<double>& phi, const Link& Curve)
+{
+    griddata griddata;
+    griddata.Nx = Nx;
+    griddata.Ny = Ny;
+    griddata.Nz = Nz;
+#pragma omp parallel default(none) shared(phi,Curve,griddata)
+    {
+        viewpoint View;
+#pragma omp for
+        for(int k=0; k<Nz; k++)
+        {
+            for(int j=0; j<Ny; j++)
+            {
+                for(int i=0; i<Nx; i++)
+                {
+                    int n = pt(i,j,k,griddata);
+                    View.xcoord = x(i,griddata);
+                    View.ycoord = y(j,griddata) ;
+                    View.zcoord = z(k,griddata);
+
+                    double mindist = 10000.0; // scroll waves
+                    int mins=-1;
+                    int minc=-1;
+                    for(int c=0; c<Curve.NumComponents; c++)
+                    {
+                        double mindistComp = 10000.0;
+                        int minscomp=-1;
+                        int NP = Curve.Components[c].knotcurve.size();
+                        for (int s=0; s<NP; s++)
+                        {
+                            // define the view vector -- n = (Curve - View)/|Curve - View|
+                            double viewx = Curve.Components[c].knotcurve[s].xcoord - View.xcoord;
+                            double viewy = Curve.Components[c].knotcurve[s].ycoord - View.ycoord;
+                            double viewz = Curve.Components[c].knotcurve[s].zcoord - View.zcoord;
+                            double dist = sqrt(viewx*viewx + viewy*viewy + viewz*viewz);
+                            if (dist < mindistComp) {mindistComp = dist; minscomp = s;}
+                        }
+                        if (mindistComp < mindist) {mindist = mindistComp; mins = minscomp; minc = c;}
+                    }
+                    // phi[n] =  cos(phi[n]-Curve.Components[minc].knotcurve[mins].theta /*-(16.0*M_PI/Nx)*mindist */); // scroll wave
+                    //phi[n] =  fmod(phi[n]-Curve.Components[minc].knotcurve[mins].theta,2*M_PI); /*-(16.0*M_PI/Nx)*mindist */ // scroll wave
+                    double result =  phi[n]+Curve.Components[minc].knotcurve[mins].theta; /*-(16.0*M_PI/Nx)*mindist */ // scroll wave
+                    while(result>2*M_PI) result -= 2*M_PI;
+                    while(result<0) result += 2*M_PI;
+                    phi[n]=result;
+                }
             }
         }
     }
@@ -453,6 +515,12 @@ void ComputeSolidAngle(vector<double>& phi, const Link& Curve)
 // find the difference between the framing we have given the curve, and the framing provided by the solid angle function.
 void ComputeSolidAngleFraming(vector<double>&phi,Link&  Curve)
 {
+    // settings
+    int NumTestPoints=100;
+    std::vector< double > testphis(NumTestPoints);
+    double r = 0.5;
+    double phi0 = 1;
+
     // Im going to want phi values around the filament. for this, we construct an interpolator object
     likely::TriCubicInterpolator interpolatedphi(phi,h,Nx,Ny,Nz);
 
@@ -478,38 +546,78 @@ void ComputeSolidAngleFraming(vector<double>&phi,Link&  Curve)
 
             // okay, we have the frame at this point. lets walk in a small circle
             // around the filament and just find the rough value of phi closest to phi0.
-            double phi0 = 3.14;
-            int NumTestPoints=100;
-            // impossible values for phi and theta
-            double mintheta = -10;
-            double minphi = 100;
-            double finalvx=0 ;
-            double finalvy=0;
-            double finalvz=0 ;
-            double r = 1;
             for(int q=0;q<NumTestPoints;q++)
             {
                 double theta = ( ((double)q) / (double(NumTestPoints)) )*2*M_PI;
                 double vx = r*(cos(theta)*ax + sin(theta)*tcax);
                 double vy = r*(cos(theta)*ay + sin(theta)*tcay);
                 double vz = r*(cos(theta)*az + sin(theta)*tcaz);
+                testphis[q]= interpolatedphi(xcoord+vx,ycoord+vy,zcoord+vz);
+            }
 
-                double testphi = interpolatedphi(xcoord+vx,ycoord+vy,zcoord+vz);
-                if(fabs(testphi-phi0) < fabs(minphi-phi0))
+            // okay we have our test values. now find the one cloest to 0 and the one closest to 2*pi -
+            // aka the min and max. I want to exclude this region from the search, as its where the cut is.
+            double minphi = 10;
+            int minq = -1;
+            for(int q=0;q<NumTestPoints;q++)
+            {
+                if(testphis[q]<minphi)
                 {
-                    minphi = testphi;
+                    minphi = testphis[q];
+                    minq = q;
+                }
+            }
+            double maxphi = -1;
+            int maxq = -1;
+            for(int q=0;q<NumTestPoints;q++)
+            {
+                if(testphis[q]>maxphi)
+                {
+                    maxphi = testphis[q];
+                    maxq = q;
+                }
+            }
+
+            // which region should we exclude? we need to pick one of two arcs of a circle. we choose the
+            // one with the smaller length.
+
+            if( mod((maxq - minq),NumTestPoints) > mod((minq - maxq),NumTestPoints))
+            {
+                for(int q=maxq;q<maxq + mod((minq - maxq),NumTestPoints);q++){testphis[mod(q,NumTestPoints)] = INFINITY;}
+            }
+            if( mod((maxq - minq),NumTestPoints) < mod((minq - maxq),NumTestPoints))
+            {
+                for(int q=minq;q<minq + mod((maxq - minq),NumTestPoints);q++){testphis[mod(q,NumTestPoints)] = INFINITY;}
+            }
+
+            minphi = -10;
+            double mintheta = -10;
+            double finalvx=0 ;
+            double finalvy=0;
+            double finalvz=0 ;
+            for(int q=0;q<NumTestPoints;q++)
+            {
+                if(fabs(testphis[q]-phi0) < fabs(minphi-phi0))
+                {
+                    minphi = testphis[q];
+                    double theta = ( ((double)q) / (double(NumTestPoints)) )*2*M_PI;
                     mintheta = theta;
+                    double vx = r*(cos(theta)*ax + sin(theta)*tcax);
+                    double vy = r*(cos(theta)*ay + sin(theta)*tcay);
+                    double vz = r*(cos(theta)*az + sin(theta)*tcaz);
                     finalvx =vx;
                     finalvy =vy;
                     finalvz =vz;
                 }
             }
+
+            // okay now that we have excluded our underisred region, search
+
             Curve.Components[i].knotcurve[s].theta = mintheta;
             Curve.Components[i].knotcurve[s].omegax = finalvx;
             Curve.Components[i].knotcurve[s].omegay = finalvy;
             Curve.Components[i].knotcurve[s].omegaz = finalvz;
         }
-
     }
 }
 
@@ -585,6 +693,13 @@ void print_Curve(struct Link& Curve)
 
         knotout << "\n\nPOINT_DATA " << n << "\n\n";
 
+        knotout << "\nSCALARS theta float\nLOOKUP_TABLE default\n";
+        for(i=0; i<n; i++)
+        {
+            knotout << Curve.Components[c].knotcurve[i].theta << '\n';
+        }
+
+
         knotout << "\nVECTORS A float\n";
         for(i=0; i<n; i++)
         {
@@ -605,6 +720,12 @@ inline int incp(int i, int p, int N)    //increment i with p for periodic bounda
 {
     if(i+p<0) return (N+i+p);
     else return ((i+p)%N);
+}
+
+inline int mod(int i, int N)    //my own mod fn
+{
+    if(i<0) return (N+i);
+    else return ((i)%N);
 }
 inline double x(int i,const griddata& griddata)
 {
