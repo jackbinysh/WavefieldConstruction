@@ -3,7 +3,7 @@ A code which improves upon the "solid angle" method of vortex initialisaiton by 
 Currently it can do the following:
 
 Takes a file with a framed curve in it, and modifies the solid angle function to give a new phase field, phi, such that a chosen contour is tangent to the curve's framing in a tubular neighborhood of the curve.
-Currently, *which* contour is hard coded in the function "ComputeSolidAngleFraming", under the name "phi0". It doesn't matter too much which it is, but phi0=0 might have trouble as its on the branch cut.
+Currently, *which* contour is hard coded in the function "ComputeSolidAngleFraming", under the name "phi0". It doesn't matter too much which it is, but phi0=0 might have trouble as its on the branch cut. Settings for wavevector can be found at the end of the function "ComputeWavefield". Currently it outputs a phase rather than taking cosines.
 
 HOW TO USE ME:
 
@@ -12,6 +12,7 @@ name a .txt file in the "Constant.h" header, along with gridspacing, size etc. M
 compile as so:
 
 export OMP_NUM_THREADS=16
+
 g++ -fopenmp -O3 SolidAngleLink.cpp TriCubicInterpolator.cpp
 
 
